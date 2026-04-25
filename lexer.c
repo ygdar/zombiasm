@@ -94,7 +94,7 @@ static bool accept_numerical_value(Lexer_t* lexer, char* lexeme, size_t max_leng
             lexeme[ix++] = (char)tolower(advance(lexer));
         }
     }
-    else
+    else if (isdigit(start_symbol))
     {
         while (isdigit(peek(lexer)) && ix < max_length - 2)
         {
@@ -106,10 +106,10 @@ static bool accept_numerical_value(Lexer_t* lexer, char* lexeme, size_t max_leng
 
     if (number_system_symbol == 'b' || number_system_symbol == 'x')
     {
-        return ix > 1;
+        return isdigit(start_symbol) && ix > 1;
     }
 
-    return ix > 0;
+    return isdigit(start_symbol) && ix > 0;
 }
 
 static bool accept_immediate_value(Lexer_t* lexer, char* lexeme, size_t max_length)
@@ -129,7 +129,7 @@ Lexer_t * lexer_ctor(FILE *file)
 
     lexer->file = file;
     lexer->line = 1;
-    lexer->state = LEXER_IN_PROCESS;
+    lexer->state = LEXER_CREATED;
     lexer->current_token = (char)getc(file);
 
     return lexer;
@@ -203,6 +203,10 @@ Token_t lexer_emit_next_token(Lexer_t *lexer)
         {
             token.type = TOK_IDENT;
         }
+    } else
+    {
+        token.type = TOK_ERROR;
+        strcpy(token.lexeme, "<UNKNOWN>");
     }
 
     switch (token.type)
@@ -224,7 +228,6 @@ const char* lexer_format_token_type(TokenType_t type)
         case TOK_ERROR: return "ERROR";
         case TOK_DIRECTIVE: return "DIRECTIVE";
         case TOK_LABEL: return "LABEL";
-        case TOK_INSTRUCTION: return "INSTRUCTION";
         case TOK_IMMEDIATE: return "IMMEDIATE";
         case TOK_BRACKET_OPEN: return "BRACKET_OPEN";
         case TOK_BRACKET_CLOSE: return "BRACKET_CLOSE";
