@@ -22,9 +22,8 @@ typedef enum {
 
 typedef enum {
     LEXER_CREATED = 0,
-    LEXER_IN_PROCESS = 1 << 0,
-    LEXER_COMPLETED = 1 << 1,
-    LEXER_HAS_ERROR = 1 << 2,
+    LEXER_COMPLETED = 1 << 0,
+    LEXER_HAS_ERROR = 1 << 1,
 } LexerState_t;
 
 typedef struct {
@@ -36,6 +35,7 @@ typedef struct {
 typedef struct {
     FILE* file;
     uint32_t line;
+    char current_token;
     LexerState_t state;
 } Lexer_t;
 

@@ -7,15 +7,15 @@
 
 static char peek(const Lexer_t* lexer)
 {
-    char ch = (char)fgetc(lexer->file);
-    ungetc(ch, lexer->file);
-
-    return ch;
+    return lexer->current_token;
 }
 
-static char advance(const Lexer_t* lexer)
+static char advance(Lexer_t* lexer)
 {
-    return (char) fgetc(lexer->file);
+    char advanced = peek(lexer);
+    lexer->current_token = (char)getc(lexer->file);
+
+    return advanced;
 }
 
 static void skip_whitespaces(Lexer_t* lexer)
@@ -91,7 +91,7 @@ static bool accept_numerical_value(Lexer_t* lexer, char* lexeme, size_t max_leng
         lexeme[ix++] = advance(lexer);
         while (isxdigit(peek(lexer)) && ix < max_length - 3)
         {
-            lexeme[ix++] = tolower(advance(lexer));
+            lexeme[ix++] = (char)tolower(advance(lexer));
         }
     }
     else
@@ -130,6 +130,7 @@ Lexer_t * lexer_ctor(FILE *file)
     lexer->file = file;
     lexer->line = 1;
     lexer->state = LEXER_IN_PROCESS;
+    lexer->current_token = (char)getc(file);
 
     return lexer;
 }
@@ -151,59 +152,45 @@ Token_t lexer_emit_next_token(Lexer_t *lexer)
     {
         token.type = TOK_EOF;
         strcpy(token.lexeme, "<EOF>");
-
-        return token;
     }
 
-    if (peek(lexer) == ',')
+    else if (peek(lexer) == ',')
     {
         advance(lexer);
         token.type = TOK_COMMA; strcpy(token.lexeme, ",");
-
-        return token;
     }
 
-    if (peek(lexer) == '[')
+    else if (peek(lexer) == '[')
     {
         advance(lexer);
         token.type = TOK_BRACKET_OPEN; strcpy(token.lexeme, "[");
-
-        return token;
     }
 
-    if (peek(lexer) == ']')
+    else if (peek(lexer) == ']')
     {
         advance(lexer);
         token.type = TOK_BRACKET_CLOSE; strcpy(token.lexeme, "]");
-
-        return token;
     }
 
-    if (peek(lexer) == '.')
+    else if (peek(lexer) == '.')
     {
         bool valid = accept_directive(lexer, token.lexeme, sizeof(token.lexeme));
         token.type = valid ? TOK_DIRECTIVE : TOK_ERROR;
-
-        return token;
     }
 
-    if (peek(lexer) == '#')
+    else if (peek(lexer) == '#')
     {
         bool valid = accept_immediate_value(lexer, token.lexeme, sizeof(token.lexeme));
         token.type = valid ? TOK_IMMEDIATE : TOK_ERROR;
-
-        return token;
     }
 
-    if (isdigit(peek(lexer)))
+    else if (isdigit(peek(lexer)))
     {
         bool valid = accept_numerical_value(lexer, token.lexeme, sizeof(token.lexeme));
         token.type = valid ? TOK_NUMBER : TOK_ERROR;
-
-        return token;
     }
 
-    if (isalpha(peek(lexer)))
+    else if (isalpha(peek(lexer)))
     {
         accept_identifier(lexer, token.lexeme, sizeof(token.lexeme));
 
@@ -216,8 +203,15 @@ Token_t lexer_emit_next_token(Lexer_t *lexer)
         {
             token.type = TOK_IDENT;
         }
+    }
 
-        return token;
+    switch (token.type)
+    {
+        case TOK_EOF:
+            lexer->state |= LEXER_COMPLETED;
+        case TOK_ERROR:
+            lexer->state |= LEXER_HAS_ERROR;
+        default: ;
     }
 
     return token;
