@@ -1,243 +1,244 @@
-//
-// Created by zombi on 4/11/2026.
-//
-
-#include "inc/lexer.h"
+#include "lexer.h"
 
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
-
-typedef struct
+static char peek(const Lexer_t* lexer)
 {
-    Register_t reg;
-    char name[3];
-} RegisterName_t;
+    char ch = (char)fgetc(lexer->file);
+    ungetc(ch, lexer->file);
 
-typedef struct
-{
-    Opcode_t opcode;
-    char name[5];
-} OpcodeName_t;
-
-static uint8_t advance(FILE* file)
-{
-    return (uint8_t)fgetc(file);
-}
-
-static int peek(FILE* file)
-{
-    const int ch = fgetc(file);
-    ungetc(ch, file);
     return ch;
 }
 
-bool try_get_imm_and_advance(FILE* file, uint64_t* imm_value)
+static char advance(const Lexer_t* lexer)
 {
-    if (peek(file) != '#')
-    {
-        return false;
-    }
-
-    advance(file);
-
-    uint8_t buffer[64] = { '\0' };
-    for (int ix = 0; isalnum(peek(file)); ix++)
-    {
-        buffer[ix] = advance(file);
-    }
-
-    // Проверить errno
-    *imm_value = strtoul(buffer, NULL, 0);
-
-    return true;
+    return (char) fgetc(lexer->file);
 }
 
-bool try_get_directive_and_advance(FILE* file, uint8_t* directive)
+static void skip_whitespaces(Lexer_t* lexer)
 {
-    if (peek(file) != '.')
+    for (;;)
     {
-        return false;
-    }
-
-    advance(file);
-
-    for (int ix = 0; isalnum(peek(file)); ix++)
-    {
-        directive[ix] = advance(file);
-    }
-
-    return true;
-}
-
-bool try_get_label_and_advance(FILE* file, uint8_t* label)
-{
-    if (!isalpha(peek(file)))
-    {
-        return false;
-    }
-
-    for (int ix = 0; isalnum(peek(file)); ix++)
-    {
-        label[ix] = advance(file);
-    }
-
-    if (peek(file) == ':')
-    {
-        advance(file);
-        return true;
-    }
-
-    fseek(file, -1 * (int) strlen(label), SEEK_CUR);
-    return false;
-}
-
-bool try_get_identifier_and_advance(FILE* file, uint8_t* identifier)
-{
-    if (!isalpha(peek(file)))
-    {
-        return false;
-    }
-
-    for (int ix = 0; isalnum(peek(file)); ix++)
-    {
-        identifier[ix] = advance(file);
-    }
-
-    return true;
-}
-
-bool try_get_mem_ref_and_advance(FILE* file, uint8_t* mem_ref)
-{
-    if (peek(file) != '[')
-    {
-        return false;
-    }
-
-    advance(file);
-
-    if (!try_get_identifier_and_advance(file, mem_ref))
-    {
-        return false;
-    }
-
-    if (peek(file) != ']')
-    {
-        return false;
-    }
-
-    advance(file);
-    return true;
-}
-
-
-Token_t get_next_token(TokenizerArg_t* arg)
-{
-    // Пропускаем пробелы
-    while (peek(arg->file) == ' ' || peek(arg->file) == '\t')
-    {
-        advance(arg->file);
-    }
-
-    // Пропускаем комментарии
-    if (peek(arg->file) == ';')
-    {
-        while (peek(arg->file) != '\n')
+        if (isspace(peek(lexer)) && peek(lexer) != EOF)
         {
-            advance(arg->file);
+            if (advance(lexer) == '\n')
+            {
+                lexer->line++;
+            };
+            continue;
+        }
+
+        if (peek(lexer) == ';')
+        {
+            while (peek(lexer) != '\n' && peek(lexer) != EOF)
+            {
+                advance(lexer);
+            }
+
+            continue;
+        }
+
+        break;
+    }
+}
+
+static bool accept_identifier(Lexer_t* lexer, char* lexeme, size_t max_length)
+{
+    char start_symbol = peek(lexer);
+
+    int ix = 0;
+    while (isalnum(peek(lexer)) && ix < max_length - 1)
+    {
+        lexeme[ix++] = advance(lexer);
+    }
+
+    lexeme[ix] = '\0';
+
+    return isalpha(start_symbol) && ix > 0;
+}
+
+static bool accept_directive(Lexer_t* lexer, char* lexeme, size_t max_length)
+{
+    // accept .
+    char start_symbol = advance(lexer);
+
+    bool valid = accept_identifier(lexer, lexeme, max_length);
+
+    return start_symbol == '.' && valid;
+}
+
+static bool accept_numerical_value(Lexer_t* lexer, char* lexeme, size_t max_length)
+{
+    char start_symbol = advance(lexer);
+    char number_system_symbol = (char)tolower(peek(lexer));
+
+    int ix = 0;
+
+    lexeme[ix++] = start_symbol;
+    if (start_symbol == '0' && number_system_symbol == 'b')
+    {
+        lexeme[ix++] = advance(lexer);
+        while ((peek(lexer) == '0' || peek(lexer) == '1') && ix < max_length - 3)
+        {
+            lexeme[ix++] = advance(lexer);
+        }
+    }
+    else if (start_symbol == '0' && number_system_symbol == 'x')
+    {
+        lexeme[ix++] = advance(lexer);
+        while (isxdigit(peek(lexer)) && ix < max_length - 3)
+        {
+            lexeme[ix++] = tolower(advance(lexer));
+        }
+    }
+    else
+    {
+        while (isdigit(peek(lexer)) && ix < max_length - 2)
+        {
+            lexeme[ix++] = advance(lexer);
         }
     }
 
-    if (peek(arg->file) == ',')
-    {
-        advance(arg->file);
+    lexeme[ix] = '\0';
 
-        return (Token_t) {
-            .type = TOK_COMMA,
-            .line = arg->line,
-        };
+    if (number_system_symbol == 'b' || number_system_symbol == 'x')
+    {
+        return ix > 1;
     }
 
-    if (peek(arg->file) == '\n')
-    {
-        advance(arg->file);
-
-        return (Token_t) {
-            .type = TOK_NEWLINE,
-            .line = arg->line,
-        };
-    }
-
-    if (peek(arg->file) == EOF)
-    {
-        advance(arg->file);
-
-        return (Token_t) {
-            .type = TOK_EOF,
-            .line = arg->line,
-        };
-    }
-
-    uint64_t imm_value = 0;
-    if (try_get_imm_and_advance(arg->file, &imm_value))
-    {
-        return (Token_t) {
-            .type = TOK_IMM,
-            .line = arg->line,
-            .imm_value = imm_value,
-        };
-    }
-
-    uint8_t directive[64] = { '\0' };
-    if (try_get_directive_and_advance(arg->file, directive))
-    {
-        Token_t token = {
-            .type = TOK_DIRECTIVE,
-            .line = arg->line,
-        };
-
-        strcpy(token.directive, directive);
-        return token;
-    }
-
-    uint8_t label[64] = { '\0' };
-    if (try_get_label_and_advance(arg->file, label))
-    {
-        Token_t token = {
-            .type = TOK_LABEL,
-            .line = arg->line,
-        };
-
-        strcpy(token.label, label);
-        return token;
-    }
-
-    uint8_t identifier[64] = { '\0' };
-    if (try_get_identifier_and_advance(arg->file, identifier))
-    {
-        Token_t token = {
-            .type = TOK_IDENTIFIER,
-            .line = arg->line,
-        };
-
-        strcpy(token.identifier, identifier);
-        return token;
-    }
-
-    uint8_t mem_ref[64] = { '\0' };
-    if (try_get_mem_ref_and_advance(arg->file, mem_ref))
-    {
-        Token_t token = {
-            .type = TOK_MEM_REF,
-            .line = arg->line,
-        };
-
-        strcpy(token.identifier, identifier);
-        return token;
-    }
-
-    fprintf(stderr, "Invalid char %c at line %d", peek(arg->file), arg->line);
-    exit(1);
+    return ix > 0;
 }
+
+static bool accept_immediate_value(Lexer_t* lexer, char* lexeme, size_t max_length)
+{
+    char start_symbol = advance(lexer);
+
+    bool accepted = accept_numerical_value(lexer, lexeme, max_length);
+    return start_symbol == '#' && accepted;
+}
+
+Lexer_t * lexer_ctor(FILE *file)
+{
+    if (!file) return NULL;
+
+    Lexer_t* lexer = calloc(1, sizeof(Lexer_t));
+    if (!lexer) return NULL;
+
+    lexer->file = file;
+    lexer->line = 1;
+    lexer->state = LEXER_IN_PROCESS;
+
+    return lexer;
+}
+
+void lexer_dtor(Lexer_t *lexer)
+{
+    free(lexer);
+}
+
+Token_t lexer_emit_next_token(Lexer_t *lexer)
+{
+    skip_whitespaces(lexer);
+
+    Token_t token = {
+        .line = lexer->line,
+    };
+
+    if (peek(lexer) == EOF)
+    {
+        token.type = TOK_EOF;
+        strcpy(token.lexeme, "<EOF>");
+
+        return token;
+    }
+
+    if (peek(lexer) == ',')
+    {
+        advance(lexer);
+        token.type = TOK_COMMA; strcpy(token.lexeme, ",");
+
+        return token;
+    }
+
+    if (peek(lexer) == '[')
+    {
+        advance(lexer);
+        token.type = TOK_BRACKET_OPEN; strcpy(token.lexeme, "[");
+
+        return token;
+    }
+
+    if (peek(lexer) == ']')
+    {
+        advance(lexer);
+        token.type = TOK_BRACKET_CLOSE; strcpy(token.lexeme, "]");
+
+        return token;
+    }
+
+    if (peek(lexer) == '.')
+    {
+        bool valid = accept_directive(lexer, token.lexeme, sizeof(token.lexeme));
+        token.type = valid ? TOK_DIRECTIVE : TOK_ERROR;
+
+        return token;
+    }
+
+    if (peek(lexer) == '#')
+    {
+        bool valid = accept_immediate_value(lexer, token.lexeme, sizeof(token.lexeme));
+        token.type = valid ? TOK_IMMEDIATE : TOK_ERROR;
+
+        return token;
+    }
+
+    if (isdigit(peek(lexer)))
+    {
+        bool valid = accept_numerical_value(lexer, token.lexeme, sizeof(token.lexeme));
+        token.type = valid ? TOK_NUMBER : TOK_ERROR;
+
+        return token;
+    }
+
+    if (isalpha(peek(lexer)))
+    {
+        accept_identifier(lexer, token.lexeme, sizeof(token.lexeme));
+
+        if (peek(lexer) == ':')
+        {
+            token.type = TOK_LABEL;
+            advance(lexer);
+        }
+        else
+        {
+            token.type = TOK_IDENT;
+        }
+
+        return token;
+    }
+
+    return token;
+}
+
+const char* lexer_format_token_type(TokenType_t type)
+{
+    switch (type) {
+        case TOK_EOF: return "EOF";
+        case TOK_ERROR: return "ERROR";
+        case TOK_DIRECTIVE: return "DIRECTIVE";
+        case TOK_LABEL: return "LABEL";
+        case TOK_INSTRUCTION: return "INSTRUCTION";
+        case TOK_IMMEDIATE: return "IMMEDIATE";
+        case TOK_BRACKET_OPEN: return "BRACKET_OPEN";
+        case TOK_BRACKET_CLOSE: return "BRACKET_CLOSE";
+        case TOK_COMMA: return "COMMA";
+        case TOK_IDENT: return "IDENT";
+        case TOK_NUMBER: return "NUMBER";
+        default: return "UNKNOWN";
+    }
+}
+
+

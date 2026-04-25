@@ -6,41 +6,42 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "common.h"
-
-
-typedef enum
-{
-    TOK_REG,
+typedef enum {
+    TOK_EOF = 0,
+    TOK_ERROR,
     TOK_DIRECTIVE,
     TOK_LABEL,
-    TOK_IDENTIFIER,
-    TOK_MEM_REF,
+    TOK_INSTRUCTION,
+    TOK_IMMEDIATE,
+    TOK_BRACKET_OPEN,
+    TOK_BRACKET_CLOSE,
     TOK_COMMA,
-    TOK_IMM,
-    TOK_NEWLINE,
-    TOK_EOF,
+    TOK_IDENT,
+    TOK_NUMBER,
 } TokenType_t;
 
-typedef struct
-{
-    uint32_t line;
-    FILE* file;
-} TokenizerArg_t;
+typedef enum {
+    LEXER_CREATED = 0,
+    LEXER_IN_PROCESS = 1 << 0,
+    LEXER_COMPLETED = 1 << 1,
+    LEXER_HAS_ERROR = 1 << 2,
+} LexerState_t;
 
-typedef struct
-{
+typedef struct {
     TokenType_t type;
+    char lexeme[128];
     uint32_t line;
-    union
-    {
-        Register_t reg;
-        uint64_t imm_value;
-        uint8_t label[64];
-        uint8_t directive[64];
-        uint8_t identifier[64];
-    };
 } Token_t;
 
+typedef struct {
+    FILE* file;
+    uint32_t line;
+    LexerState_t state;
+} Lexer_t;
 
-Token_t get_next_token(TokenizerArg_t* arg);
+
+Lexer_t* lexer_ctor(FILE* file);
+void lexer_dtor(Lexer_t* lexer);
+
+Token_t lexer_emit_next_token(Lexer_t* lexer);
+const char* lexer_format_token_type(TokenType_t type);
